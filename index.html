@@ -2,90 +2,107 @@
 <html lang="pt">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Alma</title>
+<title>Alma – Debug</title>
 <style>
-  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial,sans-serif;max-width:840px;margin:40px auto;padding:0 16px}
-  h1{font-size:42px;margin:0 0 24px}
-  .row{display:flex;gap:12px}
-  input[type=text]{flex:1;font-size:18px;padding:10px 12px;border:1px solid #ccc;border-radius:8px}
-  button{font-size:18px;padding:10px 16px;border:0;border-radius:20px;background:#3b82f6;color:#fff}
-  #err{color:#c00;margin:14px 0 0;min-height:1.2em}
-  audio{width:100%;margin-top:18px}
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial,sans-serif;max-width:920px;margin:32px auto;padding:0 16px}
+  h1{margin:0 0 16px}
+  .row{display:flex;gap:10px;margin:0 0 10px}
+  input{flex:1;padding:10px 12px;font-size:16px;border:1px solid #ccc;border-radius:8px}
+  button{padding:10px 14px;border:0;border-radius:8px;background:#3b82f6;color:#fff}
+  pre{background:#111;color:#0f0;padding:12px;border-radius:8px;white-space:pre-wrap}
+  .err{color:#c00;margin:8px 0}
+  audio{width:100%;margin-top:12px}
+  code{background:#f4f4f4;padding:2px 6px;border-radius:4px}
 </style>
-<h1>Alma</h1>
+
+<h1>Alma – Diagnóstico /say</h1>
 
 <div class="row">
-  <input id="q" type="text" placeholder="Escreve a tua pergunta…" value="olá, como estás?">
-  <button id="ask">Perguntar</button>
+  <input id="q" value="olá, como estás?">
+  <button id="ask">Testar /say</button>
 </div>
-<div id="err"></div>
+
+<div class="err" id="err"></div>
+<pre id="out"></pre>
 <audio id="player" controls preload="none"></audio>
 
 <script>
-const API_BASE = "https://almabody-alma-1.up.railway.app"; // <-- coloca aqui o TEU domínio do Railway, sem barra final
+const API_BASE = "https://almabody-alma-1.up.railway.app"; // <<< TEU domínio Railway (sem / no fim)
 const IMAGE_URL = "https://raw.githubusercontent.com/ruirocha-coder/imagens/refs/heads/main/ruirocha1919_cyber_punk_A_confident_and_elegant_woman_in_her_mi_2c33d2b6-33be-429b-887e-7c2bb64953da.png";
-// Se não usares voz fixa no backend, podes enviar voice_id aqui:
-const VOICE_ID = ""; // ex: "pt-PT-FernandaNeural" (se o teu backend aceitar isto)
+const VOICE_ID = ""; // se o backend aceitar, opcional
 
-const inp = document.getElementById('q');
-const btn = document.getElementById('ask');
-const err = document.getElementById('err');
-const player = document.getElementById('player');
+const $ = (id)=>document.getElementById(id);
+$("ask").onclick = run;
 
-btn.addEventListener('click', ask);
-inp.addEventListener('keydown', e => { if (e.key === 'Enter') ask(); });
+async function run(){
+  $("err").textContent = "";
+  $("out").textContent = "";
+  const player = $("player");
+  player.pause(); player.removeAttribute("src");
 
-async function ask(){
-  err.textContent = "";
-  player.pause();
-  player.removeAttribute('src');
+  const body = {
+    text: $("q").value.trim() || "Olá!",
+    image_url: IMAGE_URL,
+    voice_id: VOICE_ID || undefined
+  };
 
-  const question = inp.value.trim();
-  if(!question){ err.textContent = "Escreve uma pergunta."; return; }
-
-  try {
+  try{
     const res = await fetch(API_BASE + "/say", {
       method: "POST",
-      headers: { "Content-Type":"application/json" },
-      // Ajusta os campos conforme o teu backend /say espera
-      body: JSON.stringify({
-        text: question,
-        image_url: IMAGE_URL,   // remove se o teu backend não usar
-        voice_id: VOICE_ID      // idem
-      })
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify(body)
     });
 
-    // Se o backend respondeu com erro HTTP, tenta ler texto/JSON p/ mostrar
+    const headers = {};
+    res.headers.forEach((v,k)=>headers[k]=v);
+    const ct = (headers["content-type"]||"").toLowerCase();
+
+    $("out").textContent =
+      "HTTP " + res.status + " " + res.statusText + "\n" +
+      "Content-Type: " + ct + "\n" +
+      "---- HEADERS ----\n" + JSON.stringify(headers, null, 2) + "\n";
+
     if(!res.ok){
-      let msg = res.status + " " + res.statusText;
-      try { msg += ": " + await res.text(); } catch {}
-      throw new Error(msg);
+      let t=""; try{ t = await res.text(); }catch{}
+      $("out").textContent += "\n---- BODY ----\n" + t.slice(0,1000);
+      $("err").textContent = "Falha HTTP do /say: " + res.status;
+      return;
     }
 
-    const ct = (res.headers.get("content-type") || "").toLowerCase();
-
-    if (ct.includes("application/json")) {
-      // Ex: { audio_url: "..."} ou { url: "..."} ou {audio:"..."}
+    if(ct.includes("application/json")){
       const j = await res.json();
+      $("out").textContent += "\n---- JSON ----\n" + JSON.stringify(j, null, 2);
+
       const url = j.audio_url || j.url || j.audio;
-      if(!url) throw new Error("JSON sem audio_url/url.");
-      // cache-busting para evitar áudio ficar preso no cache
-      player.src = url + (url.includes("?") ? "&" : "?") + "t=" + Date.now();
-      await player.play().catch(()=>{ /* iOS precisa gesto do user, mas já clicaste no botão */ });
-    } else if (ct.includes("audio/")) {
-      // O backend devolveu binário (mp3/wav)
-      const blob = await res.blob();
-      const objectURL = URL.createObjectURL(blob);
-      player.src = objectURL;
-      await player.play().catch(()=>{});
-    } else {
-      // Conteúdo inesperado
-      const text = await res.text();
-      throw new Error("Conteúdo inesperado ("+ct+"): " + text.slice(0,200));
+      if(!url){ $("err").textContent = "JSON sem audio_url/url."; return; }
+
+      // testa HEAD do audio_url
+      try{
+        const head = await fetch(url, { method:"HEAD" });
+        const h2 = {}; head.headers.forEach((v,k)=>h2[k]=v);
+        $("out").textContent += "\n\n---- AUDIO HEAD ----\n" + JSON.stringify(h2, null, 2);
+      }catch(e){ $("out").textContent += "\n\n(Aviso) HEAD falhou: " + e; }
+
+      player.src = url + (url.includes("?")?"&":"?") + "t=" + Date.now();
+      player.onerror = ()=>{ $("err").textContent = "Audio element: Load failed (CORS/URL/expirado?)"; };
+      await player.play().catch(()=>{ /* iOS precisa de gesto; já clicaste no botão */ });
     }
-  } catch (e) {
+    else if(ct.startsWith("audio/")){
+      const blob = await res.blob();
+      $("out").textContent += "\n---- AUDIO BINARY ----\nbytes=" + blob.size;
+      const obj = URL.createObjectURL(blob);
+      player.src = obj;
+      player.onerror = ()=>{ $("err").textContent = "Audio element: Load failed (blob)."; };
+      await player.play().catch(()=>{});
+    }
+    else{
+      const t = await res.text();
+      $("out").textContent += "\n---- BODY (não audio/json) ----\n" + t.slice(0,1000);
+      $("err").textContent = "Conteúdo inesperado de /say: " + ct;
+    }
+  }catch(e){
+    $("err").textContent = "Exceção: " + (e?.message||e);
     console.error(e);
-    err.textContent = "Erro: " + (e?.message || e);
   }
 }
 </script>
