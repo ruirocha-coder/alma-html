@@ -1,109 +1,63 @@
 <!doctype html>
-<html lang="pt">
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Alma – Debug</title>
+<meta charset="utf-8" />
+<title>Alma Chat</title>
 <style>
-  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial,sans-serif;max-width:920px;margin:32px auto;padding:0 16px}
-  h1{margin:0 0 16px}
-  .row{display:flex;gap:10px;margin:0 0 10px}
-  input{flex:1;padding:10px 12px;font-size:16px;border:1px solid #ccc;border-radius:8px}
-  button{padding:10px 14px;border:0;border-radius:8px;background:#3b82f6;color:#fff}
-  pre{background:#111;color:#0f0;padding:12px;border-radius:8px;white-space:pre-wrap}
-  .err{color:#c00;margin:8px 0}
-  audio{width:100%;margin-top:12px}
-  code{background:#f4f4f4;padding:2px 6px;border-radius:4px}
+  body { font-family: Arial, sans-serif; max-width: 600px; margin: 40px auto; padding: 0 16px; }
+  h1 { font-size: 28px; }
+  .row { display: flex; gap: 10px; margin-bottom: 10px; }
+  input { flex: 1; padding: 10px; font-size: 16px; }
+  button { padding: 10px; font-size: 16px; background: #3b82f6; color: #fff; border: none; cursor: pointer; }
+  #chat { border: 1px solid #ccc; padding: 10px; height: 300px; overflow-y: auto; background: #fafafa; }
+  .msg { margin: 5px 0; }
+  .user { font-weight: bold; color: #333; }
+  .alma { color: #3b82f6; }
 </style>
 
-<h1>Alma – Diagnóstico /say</h1>
+<h1>Alma Chat</h1>
+
+<div id="chat"></div>
 
 <div class="row">
-  <input id="q" value="olá, como estás?">
-  <button id="ask">Testar /say</button>
+  <input id="q" placeholder="Escreve a tua mensagem...">
+  <button id="ask">Enviar</button>
 </div>
 
-<div class="err" id="err"></div>
-<pre id="out"></pre>
-<audio id="player" controls preload="none"></audio>
-
 <script>
-const API_BASE = "https://almabody-alma-1.up.railway.app"; // <<< TEU domínio Railway (sem / no fim)
-const IMAGE_URL = "https://raw.githubusercontent.com/ruirocha-coder/imagens/refs/heads/main/ruirocha1919_cyber_punk_A_confident_and_elegant_woman_in_her_mi_2c33d2b6-33be-429b-887e-7c2bb64953da.png";
-const VOICE_ID = ""; // se o backend aceitar, opcional
+const API_BASE = "https://almabody-alma-1.up.railway.app"; // teu backend
 
-const $ = (id)=>document.getElementById(id);
-$("ask").onclick = run;
+function addMsg(sender, text) {
+  const chat = document.getElementById("chat");
+  const div = document.createElement("div");
+  div.className = "msg " + sender;
+  div.innerHTML = `<span class="${sender}">${sender === "user" ? "Tu" : "Alma"}:</span> ${text}`;
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+}
 
-async function run(){
-  $("err").textContent = "";
-  $("out").textContent = "";
-  const player = $("player");
-  player.pause(); player.removeAttribute("src");
+document.getElementById("ask").onclick = async () => {
+  const text = document.getElementById("q").value.trim();
+  if (!text) return;
+  addMsg("user", text);
+  document.getElementById("q").value = "";
 
-  const body = {
-    text: $("q").value.trim() || "Olá!",
-    image_url: IMAGE_URL,
-    voice_id: VOICE_ID || undefined
-  };
-
-  try{
-    const res = await fetch(API_BASE + "/say", {
+  try {
+    const res = await fetch(API_BASE + "/say", { // usar o teu endpoint que devolve texto
       method: "POST",
-      headers: {"Content-Type":"application/json"},
-      body: JSON.stringify(body)
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text })
     });
 
-    const headers = {};
-    res.headers.forEach((v,k)=>headers[k]=v);
-    const ct = (headers["content-type"]||"").toLowerCase();
-
-    $("out").textContent =
-      "HTTP " + res.status + " " + res.statusText + "\n" +
-      "Content-Type: " + ct + "\n" +
-      "---- HEADERS ----\n" + JSON.stringify(headers, null, 2) + "\n";
-
-    if(!res.ok){
-      let t=""; try{ t = await res.text(); }catch{}
-      $("out").textContent += "\n---- BODY ----\n" + t.slice(0,1000);
-      $("err").textContent = "Falha HTTP do /say: " + res.status;
+    if (!res.ok) {
+      addMsg("alma", "Erro: " + res.status);
       return;
     }
 
-    if(ct.includes("application/json")){
-      const j = await res.json();
-      $("out").textContent += "\n---- JSON ----\n" + JSON.stringify(j, null, 2);
+    const data = await res.json();
+    // Assumindo que a tua API devolve { reply: "...texto..." }
+    addMsg("alma", data.reply || JSON.stringify(data));
 
-      const url = j.audio_url || j.url || j.audio;
-      if(!url){ $("err").textContent = "JSON sem audio_url/url."; return; }
-
-      // testa HEAD do audio_url
-      try{
-        const head = await fetch(url, { method:"HEAD" });
-        const h2 = {}; head.headers.forEach((v,k)=>h2[k]=v);
-        $("out").textContent += "\n\n---- AUDIO HEAD ----\n" + JSON.stringify(h2, null, 2);
-      }catch(e){ $("out").textContent += "\n\n(Aviso) HEAD falhou: " + e; }
-
-      player.src = url + (url.includes("?")?"&":"?") + "t=" + Date.now();
-      player.onerror = ()=>{ $("err").textContent = "Audio element: Load failed (CORS/URL/expirado?)"; };
-      await player.play().catch(()=>{ /* iOS precisa de gesto; já clicaste no botão */ });
-    }
-    else if(ct.startsWith("audio/")){
-      const blob = await res.blob();
-      $("out").textContent += "\n---- AUDIO BINARY ----\nbytes=" + blob.size;
-      const obj = URL.createObjectURL(blob);
-      player.src = obj;
-      player.onerror = ()=>{ $("err").textContent = "Audio element: Load failed (blob)."; };
-      await player.play().catch(()=>{});
-    }
-    else{
-      const t = await res.text();
-      $("out").textContent += "\n---- BODY (não audio/json) ----\n" + t.slice(0,1000);
-      $("err").textContent = "Conteúdo inesperado de /say: " + ct;
-    }
-  }catch(e){
-    $("err").textContent = "Exceção: " + (e?.message||e);
-    console.error(e);
+  } catch (e) {
+    addMsg("alma", "Erro: " + e.message);
   }
-}
+};
 </script>
-</html>
