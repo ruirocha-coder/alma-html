@@ -1,1 +1,92 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Alma</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            padding: 20px;
+        }
+        h1 {
+            color: #000;
+        }
+        input {
+            padding: 8px;
+            font-size: 16px;
+            width: 250px;
+        }
+        button {
+            padding: 8px 15px;
+            font-size: 16px;
+            margin-left: 5px;
+            cursor: pointer;
+        }
+        #erro {
+            color: red;
+            margin-top: 10px;
+        }
+        video {
+            margin-top: 20px;
+            max-width: 100%;
+            height: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>Alma</h1>
+    <input id="texto" type="text" placeholder="Escreve algo..." />
+    <button onclick="perguntar()">Perguntar</button>
+    <div id="erro"></div>
+    <video id="video" autoplay playsinline controls></video>
 
+    <script>
+        const API_BASE = "https://almabody-alma-1.up.railway.app"; // Backend Railway
+        const IMAGE_URL = "https://raw.githubusercontent.com/ruirocha-coder/imagens/main/ruirocha1919_cyber_punk_A_confident_and_elegant_woman_in_her_mi_2c33d2b6-33be-429b-887e-7c2bb64953da.png"; // Avatar
+        const VOICE_ID = "pt-PT-FernandaNeural"; // Ajusta conforme a voz escolhida
+
+        async function perguntar() {
+            const texto = document.getElementById("texto").value.trim();
+            const erroDiv = document.getElementById("erro");
+            const video = document.getElementById("video");
+
+            erroDiv.textContent = "";
+
+            if (!texto) {
+                erroDiv.textContent = "Por favor escreve algo.";
+                return;
+            }
+
+            try {
+                const resposta = await fetch(`${API_BASE}/say`, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        text: texto,
+                        image_url: IMAGE_URL,
+                        voice_id: VOICE_ID
+                    })
+                });
+
+                if (!resposta.ok) {
+                    throw new Error(`Erro: ${resposta.status}`);
+                }
+
+                const dados = await resposta.json();
+
+                if (dados?.video_url) {
+                    video.src = dados.video_url;
+                } else {
+                    throw new Error("Resposta inválida da API");
+                }
+            } catch (e) {
+                erroDiv.textContent = "Erro: " + e.message;
+            }
+        }
+    </script>
+</body>
+</html>
