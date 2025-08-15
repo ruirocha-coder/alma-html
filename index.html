@@ -1,92 +1,92 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="pt">
-<head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Alma</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            text-align: center;
-            padding: 20px;
-        }
-        h1 {
-            color: #000;
-        }
-        input {
-            padding: 8px;
-            font-size: 16px;
-            width: 250px;
-        }
-        button {
-            padding: 8px 15px;
-            font-size: 16px;
-            margin-left: 5px;
-            cursor: pointer;
-        }
-        #erro {
-            color: red;
-            margin-top: 10px;
-        }
-        video {
-            margin-top: 20px;
-            max-width: 100%;
-            height: auto;
-        }
-    </style>
-</head>
-<body>
-    <h1>Alma</h1>
-    <input id="texto" type="text" placeholder="Escreve algo..." />
-    <button onclick="perguntar()">Perguntar</button>
-    <div id="erro"></div>
-    <video id="video" autoplay playsinline controls></video>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Alma</title>
+<style>
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial,sans-serif;max-width:840px;margin:40px auto;padding:0 16px}
+  h1{font-size:42px;margin:0 0 24px}
+  .row{display:flex;gap:12px}
+  input[type=text]{flex:1;font-size:18px;padding:10px 12px;border:1px solid #ccc;border-radius:8px}
+  button{font-size:18px;padding:10px 16px;border:0;border-radius:20px;background:#3b82f6;color:#fff}
+  #err{color:#c00;margin:14px 0 0;min-height:1.2em}
+  audio{width:100%;margin-top:18px}
+</style>
+<h1>Alma</h1>
 
-    <script>
-        const API_BASE = "https://almabody-alma-1.up.railway.app"; // Backend Railway
-        const IMAGE_URL = "https://raw.githubusercontent.com/ruirocha-coder/imagens/main/ruirocha1919_cyber_punk_A_confident_and_elegant_woman_in_her_mi_2c33d2b6-33be-429b-887e-7c2bb64953da.png"; // Avatar
-        const VOICE_ID = "pt-PT-FernandaNeural"; // Ajusta conforme a voz escolhida
+<div class="row">
+  <input id="q" type="text" placeholder="Escreve a tua pergunta…" value="olá, como estás?">
+  <button id="ask">Perguntar</button>
+</div>
+<div id="err"></div>
+<audio id="player" controls preload="none"></audio>
 
-        async function perguntar() {
-            const texto = document.getElementById("texto").value.trim();
-            const erroDiv = document.getElementById("erro");
-            const video = document.getElementById("video");
+<script>
+const API_BASE = "https://almabody-alma-1.up.railway.app"; // <-- coloca aqui o TEU domínio do Railway, sem barra final
+const IMAGE_URL = "https://raw.githubusercontent.com/ruirocha-coder/imagens/refs/heads/main/ruirocha1919_cyber_punk_A_confident_and_elegant_woman_in_her_mi_2c33d2b6-33be-429b-887e-7c2bb64953da.png";
+// Se não usares voz fixa no backend, podes enviar voice_id aqui:
+const VOICE_ID = ""; // ex: "pt-PT-FernandaNeural" (se o teu backend aceitar isto)
 
-            erroDiv.textContent = "";
+const inp = document.getElementById('q');
+const btn = document.getElementById('ask');
+const err = document.getElementById('err');
+const player = document.getElementById('player');
 
-            if (!texto) {
-                erroDiv.textContent = "Por favor escreve algo.";
-                return;
-            }
+btn.addEventListener('click', ask);
+inp.addEventListener('keydown', e => { if (e.key === 'Enter') ask(); });
 
-            try {
-                const resposta = await fetch(`${API_BASE}/say`, {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify({
-                        text: texto,
-                        image_url: IMAGE_URL,
-                        voice_id: VOICE_ID
-                    })
-                });
+async function ask(){
+  err.textContent = "";
+  player.pause();
+  player.removeAttribute('src');
 
-                if (!resposta.ok) {
-                    throw new Error(`Erro: ${resposta.status}`);
-                }
+  const question = inp.value.trim();
+  if(!question){ err.textContent = "Escreve uma pergunta."; return; }
 
-                const dados = await resposta.json();
+  try {
+    const res = await fetch(API_BASE + "/say", {
+      method: "POST",
+      headers: { "Content-Type":"application/json" },
+      // Ajusta os campos conforme o teu backend /say espera
+      body: JSON.stringify({
+        text: question,
+        image_url: IMAGE_URL,   // remove se o teu backend não usar
+        voice_id: VOICE_ID      // idem
+      })
+    });
 
-                if (dados?.video_url) {
-                    video.src = dados.video_url;
-                } else {
-                    throw new Error("Resposta inválida da API");
-                }
-            } catch (e) {
-                erroDiv.textContent = "Erro: " + e.message;
-            }
-        }
-    </script>
-</body>
+    // Se o backend respondeu com erro HTTP, tenta ler texto/JSON p/ mostrar
+    if(!res.ok){
+      let msg = res.status + " " + res.statusText;
+      try { msg += ": " + await res.text(); } catch {}
+      throw new Error(msg);
+    }
+
+    const ct = (res.headers.get("content-type") || "").toLowerCase();
+
+    if (ct.includes("application/json")) {
+      // Ex: { audio_url: "..."} ou { url: "..."} ou {audio:"..."}
+      const j = await res.json();
+      const url = j.audio_url || j.url || j.audio;
+      if(!url) throw new Error("JSON sem audio_url/url.");
+      // cache-busting para evitar áudio ficar preso no cache
+      player.src = url + (url.includes("?") ? "&" : "?") + "t=" + Date.now();
+      await player.play().catch(()=>{ /* iOS precisa gesto do user, mas já clicaste no botão */ });
+    } else if (ct.includes("audio/")) {
+      // O backend devolveu binário (mp3/wav)
+      const blob = await res.blob();
+      const objectURL = URL.createObjectURL(blob);
+      player.src = objectURL;
+      await player.play().catch(()=>{});
+    } else {
+      // Conteúdo inesperado
+      const text = await res.text();
+      throw new Error("Conteúdo inesperado ("+ct+"): " + text.slice(0,200));
+    }
+  } catch (e) {
+    console.error(e);
+    err.textContent = "Erro: " + (e?.message || e);
+  }
+}
+</script>
 </html>
