@@ -1,136 +1,115 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="pt">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Alma – Demo (chat + vídeo D-ID)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Alma</title>
   <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; }
-    h1 { margin: 0 0 16px; }
-    .row { display: grid; grid-template-columns: 1fr 520px; gap: 24px; align-items: start; }
-    .ask { display: flex; gap: 8px; margin-bottom: 12px; }
-    .ask input { flex: 1; padding: 10px 12px; font-size: 16px; border: 1px solid #ccc; border-radius: 8px; }
-    .ask button { padding: 10px 14px; font-size: 16px; border: 0; background: #2d6cdf; color: #fff; border-radius: 8px; cursor: pointer; }
-    .card { border: 1px solid #e5e5e5; border-radius: 12px; padding: 12px; background: #fafafa; }
-    .err { color: #c62828; margin: 8px 0; }
-    .answer { white-space: pre-wrap; line-height: 1.4; }
-    video { width: 100%; border-radius: 12px; background: #000; }
-    figure { margin: 0; }
-    figcaption { margin-top: 6px; font-size: 12px; color: #666; }
-    details { margin-top: 20px; }
-    pre { background: #111; color: #8bd; padding: 12px; border-radius: 8px; overflow: auto; }
-    .muted { color: #666; font-size: 13px; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 20px; }
+    h1 { margin: 0 0 12px; }
+    .bar { display:flex; gap:10px; margin-bottom:12px; }
+    input { flex:1; padding:10px 12px; border:1px solid #ccc; border-radius:8px; font-size:16px; }
+    button { padding:10px 14px; border:0; border-radius:8px; background:#2563eb; color:#fff; font-weight:600; cursor:pointer; }
+    button:disabled { opacity:.6; cursor:not-allowed; }
+    #answer { background:#fafafa; border:1px solid #eee; border-radius:8px; padding:10px; margin-bottom:10px; min-height:44px; }
+    #error { color:#b91c1c; font-weight:600; margin-bottom:8px; display:none; }
+    video { width:100%; max-width:520px; background:#000; border-radius:10px; border:1px solid #eee; }
+    details { margin-top:14px; }
+    pre { background:#111; color:#0f0; padding:10px; border-radius:8px; white-space:pre-wrap; }
   </style>
 </head>
 <body>
   <h1>Alma</h1>
 
-  <div class="ask">
-    <input id="q" type="text" placeholder="Escreve aqui…" value="olá" />
-    <button id="go">Perguntar</button>
+  <div class="bar">
+    <input id="q" placeholder="Escreve aqui a tua pergunta…" />
+    <button id="askBtn">Perguntar</button>
   </div>
 
-  <div class="row">
-    <div class="card">
-      <div id="err" class="err" hidden></div>
-      <div class="answer" id="txt">—</div>
-      <p class="muted">Se o vídeo não arrancar automaticamente no iOS, toca no vídeo para iniciar.</p>
-    </div>
-
-    <figure>
-      <video id="vid" controls playsinline preload="none"></video>
-      <figcaption>Vídeo gerado pelo D-ID a partir do texto da Alma.</figcaption>
-    </figure>
-  </div>
+  <div id="error"></div>
+  <div id="answer"></div>
+  <video id="video" playsinline controls preload="none"></video>
 
   <details>
     <summary>Diagnóstico</summary>
-    <pre id="diag">—</pre>
+    <pre id="dbg">—</pre>
   </details>
 
 <script>
-  // =======================
-  // CONFIGURAÇÃO
-  // =======================
-  const API_BASE = 'https://alma-server-alma-1.up.railway.app'; // <- muda se o teu domínio for outro
+  // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+  // TROCAR APENAS ESTES 2 ENDPOINTS PELOS TEUS:
+  const NLP_API     = "https://alma-server-alma-1.up.railway.app/ask";   // <-- /ask do teu alma-server
+  const DID_BACKEND = "https://almabody-alma-1.up.railway.app";          // <-- base do almabody (tem /say)
+  // <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
-  // =======================
-  // HELPERS
-  // =======================
-  const $ = sel => document.querySelector(sel);
-  const setError = (msg) => {
-    const el = $('#err');
-    if (!msg) { el.hidden = true; el.textContent = ''; return; }
-    el.hidden = false; el.textContent = 'Erro: ' + msg;
-  };
-  const setDiag = (obj, label='raw') => {
-    const pre = $('#diag');
-    const content = (typeof obj === 'string') ? obj : JSON.stringify(obj, null, 2);
-    pre.textContent = `# ${label}\n${content}`;
-  };
+  const $q = document.getElementById('q');
+  const $btn = document.getElementById('askBtn');
+  const $ans = document.getElementById('answer');
+  const $err = document.getElementById('error');
+  const $vid = document.getElementById('video');
+  const $dbg = document.getElementById('dbg');
 
-  // =======================
-  // CHAMADAS
-  // =======================
-  async function askNLP(question) {
-    // POST /ask (Grok) -> { answer }
-    const r = await fetch(`${API_BASE}/ask`, {
-      method: 'POST',
-      headers: { 'Content-Type':'application/json' },
-      body: JSON.stringify({ question })
-    });
-    const body = await r.text(); // para diagnosticar facilmente
-    setDiag({ status: r.status, body }, 'NLP raw');
-    if (!r.ok) throw new Error(`/ask ${r.status}`);
-    const j = JSON.parse(body);
-    return j.answer || '';
+  function setErr(msg){ $err.style.display='block'; $err.textContent="Erro: "+msg; }
+  function clrErr(){ $err.style.display='none'; $err.textContent=""; }
+  function dbg(title, payload){
+    let t = title+"\n";
+    try { t += (typeof payload === 'string') ? payload : JSON.stringify(payload,null,2); }
+    catch(e){ t += String(e); }
+    $dbg.textContent = t;
   }
 
-  async function sayVideo(text) {
-    // POST /say (D-ID) -> { video_url }
-    const r = await fetch(`${API_BASE}/say`, {
-      method: 'POST',
-      headers: { 'Content-Type':'application/json' },
-      body: JSON.stringify({ text })
-    });
-    const body = await r.text();
-    setDiag({ status: r.status, body }, 'say raw');
-    if (!r.ok) throw new Error(`(say) ${r.status}`);
-    const j = JSON.parse(body);
-    if (!j.video_url) throw new Error('Resposta sem video_url');
-    return j.video_url;
-  }
+  async function ask(){
+    clrErr();
+    $btn.disabled = true;
+    $ans.textContent = "";
+    $vid.src = "";
 
-  // =======================
-  // UI
-  // =======================
-  async function run() {
-    setError('');
-    $('#txt').textContent = '… a pensar';
-    const q = $('#q').value.trim();
-    if (!q) { setError('Escreve uma mensagem'); return; }
+    const question = ($q.value || "").trim();
+    if(!question){ setErr("Pergunta vazia."); $btn.disabled=false; return; }
 
-    try {
-      // 1) pergunta ao Grok
-      const answer = await askNLP(q);
-      $('#txt').textContent = answer || 'Sem resposta do Grok.';
+    // 1) Pergunta ao NLP
+    let answer;
+    try{
+      const r = await fetch(NLP_API, {
+        method:"POST", headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({ question })
+      });
+      const txt = await r.text();
+      dbg("# /ask raw", {status:r.status, body:txt});
+      const j = JSON.parse(txt);
+      if(!r.ok) throw new Error(j?.answer || r.statusText);
+      answer = j?.answer || "Sem resposta.";
+      $ans.textContent = answer;
+    }catch(e){
+      setErr(e?.message || "Falha no /ask");
+      $btn.disabled = false;
+      return;
+    }
 
-      // 2) pede o vídeo ao /say (D-ID)
-      const url = await sayVideo(answer || q); // se vier vazio, usa a pergunta
-      const v = $('#vid');
-      v.src = url;
-      // alguns browsers só tocam após user gesture
-      try { await v.play(); } catch (_) { /* o utilizador toca manualmente */ }
-    } catch (e) {
-      console.error(e);
-      setError(e.message || 'Load failed');
+    // 2) Pede vídeo ao D-ID através do almabody (/say)
+    try{
+      const r2 = await fetch(DID_BACKEND + "/say", {
+        method:"POST", headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({ text: answer })
+      });
+      const txt2 = await r2.text();
+      dbg("# /say raw", {status:r2.status, body:txt2});
+
+      const j2 = JSON.parse(txt2);
+      if(!r2.ok) throw new Error(j2?.error || r2.statusText);
+      if(!j2?.video_url) throw new Error("Resposta sem video_url");
+
+      $vid.src = j2.video_url;
+      $vid.play().catch(()=>{/* iOS precisa de toque */});
+    }catch(e){
+      setErr(e?.message || "Falha no /say");
+    }finally{
+      $btn.disabled = false;
     }
   }
 
-  $('#go').addEventListener('click', run);
-  $('#q').addEventListener('keydown', (ev) => {
-    if (ev.key === 'Enter') run();
-  });
+  document.getElementById('askBtn').addEventListener('click', ask);
+  document.getElementById('q').addEventListener('keydown', e => { if(e.key==="Enter") ask(); });
 </script>
 </body>
 </html>
